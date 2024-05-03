@@ -14,7 +14,7 @@ export async function deployStakingFixture() {
   const ldTokenAddress = await ldtoken.getAddress();
 
   const LdStaking = await ethers.getContractFactory("LdStaking");
-  const ldstaking = await LdStaking.deploy(5000, 12, owner, treasury, ldTokenAddress);
+  const ldstaking = await LdStaking.deploy(5000, owner, ldTokenAddress);
   const ldStakingAddress = await ldstaking.getAddress();
 
   const rewardPool = await ethers.getContractFactory("RewardPool");

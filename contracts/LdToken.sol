@@ -205,8 +205,9 @@ contract LdToken is ERC20, ERC20Burnable, ERC20Permit, Ownable {
 
     // Overriding the transferFrom function to include tax and anti-snipe logic
     function transferFrom(address sender, address recipient, uint256 amount) public override returns (bool) {
+        address spender = _msgSender();
+        _spendAllowance(sender, spender, amount);
         _tokenTransfer(sender, recipient, amount);
-        _approve(sender, _msgSender(), allowance(sender, _msgSender()) - amount);
         return true;
     }
 }
