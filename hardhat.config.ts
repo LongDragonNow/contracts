@@ -19,6 +19,12 @@ const ldStakingAddress: string = vars.has("STAKING_ADDRESS") ? vars.get("STAKING
 const rewardPoolAddress: string = vars.has("POOL_ADDRESS") ? vars.get("POOL_ADDRESS") : "";
 const treasuryAddress: string = vars.has("TREASURY") ? vars.get("TREASURY") : "";
 
+const ecosystemDevelopmentAddress: string = vars.has("ECOSYSTEM_DEVELOPMENT_ADDRESS")
+  ? vars.get("ECOSYSTEM_DEVELOPMENT_ADDRESS")
+  : "";
+const liquidityPoolsAddress: string = vars.has("LIQUIDITY_POOLS_ADDRESS") ? vars.get("LIQUIDITY_POOLS_ADDRESS") : "";
+const reflectionsAddress: string = vars.has("REFLECTIONS_ADDRESS") ? vars.get("REFLECTIONS_ADDRESS") : "";
+
 const chainIds = {
   hardhat: 31337,
   ethereum: 1,
@@ -131,4 +137,13 @@ const config: HardhatUserConfig = {
 };
 
 export default config;
-export { owner, ldTokenAddress, ldStakingAddress, rewardPoolAddress, treasuryAddress };
+export {
+  ecosystemDevelopmentAddress,
+  ldStakingAddress,
+  ldTokenAddress,
+  liquidityPoolsAddress,
+  owner,
+  reflectionsAddress,
+  rewardPoolAddress,
+  treasuryAddress,
+};

@@ -18,23 +18,23 @@ contract LdToken is ERC20, ERC20Burnable, ERC20Permit, Ownable {
     address public immutable swapPair;
 
     // Wallet addresses for liquidity pools, reflections, and ecosystem development
-    address private immutable _liquidityPoolsWallet;
-    address private immutable _reflectionsWallet;
-    address private immutable _ecosystemDevelopmentWallet;
+    address public immutable _liquidityPoolsWallet;
+    address public immutable _reflectionsWallet;
+    address public immutable _ecosystemDevelopmentWallet;
 
     // Variables to manage taxes and limits
-    uint256 private _taxPercentage = 5;
-    uint256 private _liquidityTaxPercentage = 60;
-    uint256 private _reflectionsTaxPercentage = 20;
-    uint256 private _ecosystemTaxPercentage = 20;
+    uint256 public _taxPercentage = 5;
+    uint256 public _liquidityTaxPercentage = 60;
+    uint256 public _reflectionsTaxPercentage = 20;
+    uint256 public _ecosystemTaxPercentage = 20;
 
     // Variables to manage max tokens per wallet and anti-snipe mechanism
     uint256 public immutable maxTokensPerWallet;
     bool public antiSnipeEnabled = true;
 
     // Mappings to manage exemptions from taxes and max token limits
-    mapping(address => bool) private _isTaxExempt;
-    mapping(address => bool) private _isExcludedFromMaxTokensPerWallet;
+    mapping(address => bool) public _isTaxExempt;
+    mapping(address => bool) public _isExcludedFromMaxTokensPerWallet;
 
     // Events for logging state changes.
     event AntiSnipeEnabledUpdated(bool enabled);
