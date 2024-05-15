@@ -59,6 +59,11 @@ describe("LdStaking", function () {
     it("Should have correct apr Rate", async function () {
       expect(5000).to.equal(await this.stakingInst._aprRate());
     });
+
+    it("Should allow APR change by owner", async function () {
+      await this.stakingInst.changeApr("2000");
+      expect(2000).to.equal(await this.stakingInst._aprRate());
+    });
   });
 
   describe("Staking", async function () {
@@ -80,7 +85,7 @@ describe("LdStaking", function () {
     });
 
     it("Should revert as staking is not started yet", async function () {
-      await expect(this.stakingInst.stakeLd(ethers.parseEther("10000"))).to.be.rejectedWith("StakingNotStarted");
+      await expect(this.stakingInst.stakeLd(ethers.parseEther("10000"))).to.be.rejectedWith("StakingNotStarted()");
     });
 
     it("Should increase total staked amount in staking pool", async function () {
@@ -88,6 +93,14 @@ describe("LdStaking", function () {
       const staking = new Contract(this.ldStakingAddress, LdStaking__factory.abi, this.addr2);
       await staking.stakeLd(ethers.parseEther("10000"));
       expect(await staking._totalStakedLdAmount()).to.equal(ethers.parseEther("10000").toString());
+    });
+
+    it("Should revert staking if staking is disabled", async function () {
+      await this.stakingInst.enableStaking();
+      await this.stakingInst.disableStaking();
+      const staking = new Contract(this.ldStakingAddress, LdStaking__factory.abi, this.addr2);
+
+      await expect(staking.stakeLd(ethers.parseEther("10000"))).to.be.rejectedWith("StakingNotStarted()");
     });
 
     it("Should decrease balance of staker", async function () {
@@ -211,10 +224,92 @@ describe("LdStaking", function () {
     it("Should receive rewards for missed claims in previous weeks", async function () {
       // rewards = 10000*5000/10000
       //for 3 weeks - rewards*3/52
-      let expectedRewards = 72115384615384615384n;
+      let expectedRewards = 291244097064178425124n;
       // 3 weeks ahead
       await time.increase(21 * 86400);
       await expect(this.stakingInst.claimRewards(0))
+        .to.emit(this.stakingInst, "RewardClaimed")
+        .withArgs(this.owner.address, expectedRewards);
+    });
+
+    it("Should not inflate exponentially for longer time period", async function () {
+      // 166517 as rewrads for 300 weeks at 50% apr
+      let expectedRewards = 166517566412835534895572n;
+      await time.increase(2100 * 86400);
+      await expect(this.stakingInst.claimRewards(0))
+        .to.emit(this.stakingInst, "RewardClaimed")
+        .withArgs(this.owner.address, expectedRewards);
+    });
+  });
+
+  describe("Restaking", async function () {
+    beforeEach(async function () {
+      const { owner, addr1, addr2, ldStakingAddress, ldTokenAddress, rewardPoolAddress, stakingInst } =
+        await this.loadFixture(deployStakingFixture);
+      this.owner = owner;
+      this.addr1 = addr1;
+      this.addr2 = addr2;
+      this.ldStakingAddress = ldStakingAddress;
+      this.ldTokenAddress = ldTokenAddress;
+      this.rewardPoolAddress = rewardPoolAddress;
+      this.stakingInst = stakingInst;
+
+      const ldTokenInst = new Contract(ldTokenAddress, LdToken__factory.abi, this.owner);
+      // await ldTokenInst.mint();
+      await ldTokenInst.approve(ldStakingAddress, ethers.parseEther("1000000"));
+
+      this.ldTokenInst = ldTokenInst;
+      await this.stakingInst.enableStaking();
+      await this.stakingInst.stakeLd(ethers.parseEther("10000"));
+      const stake2 = await this.stakingInst.getuserStake(owner, 0);
+      expect(stake2.stakedLdAmount).to.be.equal(ethers.parseEther("10000"));
+    });
+
+    it("Should revert restake before 7 days", async function () {
+      await time.increase(3 * 86400);
+      await expect(this.stakingInst.reStake(0)).to.be.rejectedWith("ClaimOrUnstakeWindowNotOpen");
+    });
+
+    it("Should restake after week ends", async function () {
+      await time.increase(7 * 86400);
+      await expect(this.stakingInst.reStake(0)).to.emit(this.stakingInst, "RewardClaimed");
+    });
+
+    it("Should increase staking contract balance on restake", async function () {
+      await time.increase(7 * 86400);
+      const balanceBefore = await this.ldTokenInst.balanceOf(this.ldStakingAddress);
+      await expect(this.stakingInst.reStake(0)).to.emit(this.stakingInst, "RewardClaimed");
+      const balanceAfter = await this.ldTokenInst.balanceOf(this.ldStakingAddress);
+      expect(balanceAfter > balanceBefore).to.be.equal(true);
+    });
+
+    it("Should revert claim after 8th day is passed", async function () {
+      await time.increase(8 * 86400);
+      await expect(this.stakingInst.reStake(0)).to.be.rejectedWith("ClaimOrUnstakeWindowNotOpen");
+    });
+
+    it("Should update lastClaimed timestamp for user struct after restake", async function () {
+      const nextClaim = (await time.latest()) + 7 * 86400;
+      await time.setNextBlockTimestamp(nextClaim);
+      await this.stakingInst.reStake(0);
+      const stake2 = await this.stakingInst.getuserStake(this.owner, 0);
+      expect(stake2.lastClaimed).to.be.equal(nextClaim);
+    });
+
+    it("Should be able to restake after end of any weekly cycle", async function () {
+      await time.increase(7 * 86400);
+      /// not claimed
+      await time.increase(7 * 86400);
+      await expect(this.stakingInst.reStake(0)).to.emit(this.stakingInst, "RewardClaimed");
+    });
+
+    it("Should be able to restake rewards missed in previous weeks", async function () {
+      // rewards = 10000*5000/10000
+      //for 3 weeks - rewards*3/52
+      let expectedRewards = 291244097064178425124n;
+      // 3 weeks ahead
+      await time.increase(21 * 86400);
+      await expect(this.stakingInst.reStake(0))
         .to.emit(this.stakingInst, "RewardClaimed")
         .withArgs(this.owner.address, expectedRewards);
     });

@@ -1,7 +1,5 @@
 export * from "./addStake";
 export * from "./changeApr";
-export * from "./changeTreasury";
-export * from "./disableClaims";
 export * from "./disableStaking";
 export * from "./enableStaking";
 export * from "./fundPool";

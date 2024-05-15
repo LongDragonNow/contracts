@@ -9,14 +9,14 @@ async function main() {
       console.log("Set owner's address npx hardhat vars set OWNER_ADDRESS $ownerAddress");
       return;
     }
-    if (treasuryAddress == "" || ldTokenAddress == "") {
+    if (ldTokenAddress == "") {
       console.log(
         "Error: address for treasurr wallet and ld token not set. Deploy and set addresses using [npx hardhat vars set LD_ADDRESS $tokenAddress] and [npx hardhat vars set TREASURY $treasuryAddress]",
       );
       return;
     }
     const Staking: LdStaking__factory = await ethers.getContractFactory("LdStaking");
-    const staking = await Staking.deploy(5000, 12, owner, treasuryAddress, ldTokenAddress);
+    const staking = await Staking.deploy(5000, owner, ldTokenAddress);
     if (!staking || !staking.deploymentTransaction) {
       // If deployTransaction is null, log an error and exit the function early
       console.log(

@@ -12,7 +12,7 @@ contract LdStaking is Ownable {
     error NotsufficientStake();
     error InvalidAPR();
     error StakingNotStarted();
-    error InsufficientLdBalance();
+    error InsufficientRewardLiquidity();
     error ClaimOrUnstakeWindowNotOpen();
 
     using EnumerableSet for EnumerableSet.AddressSet;
@@ -96,7 +96,7 @@ contract LdStaking is Ownable {
      * @dev Can only be called by owner
      * @param newApr New APR rate
      */
-    function changeApr(uint8 newApr) external onlyOwner {
+    function changeApr(uint64 newApr) external onlyOwner {
         if (newApr < 100) revert InvalidAPR();
         _aprRate = newApr;
     }
@@ -155,10 +155,14 @@ contract LdStaking is Ownable {
         if (_stakeByUser[msg.sender][stakeIndex].stakedLdAmount <= 0) revert NotsufficientStake();
         if (!canClaimOrUnstake(userStake.lastClaimed)) revert ClaimOrUnstakeWindowNotOpen();
 
-        uint256 rewardAmount = calculateRewards(userStake);
+        uint256 weeksStaked = (block.timestamp - userStake.lastClaimed) / 7 days;
+        uint256 rewardAmount = calculateRewards(weeksStaked, userStake.stakedLdAmount);
         userStake.lastClaimed = block.timestamp;
-        userStake.stakedLdAmount = rewardAmount;
+        userStake.stakedLdAmount += rewardAmount;
         _stakeByUser[_msgSender()][stakeIndex] = userStake;
+
+        if (_rewardPool.getPooledLDAmount() < rewardAmount) revert InsufficientRewardLiquidity();
+        _rewardPool.sendRewards(rewardAmount, address(this));
 
         emit RewardClaimed(_msgSender(), rewardAmount);
     }
@@ -171,10 +175,12 @@ contract LdStaking is Ownable {
         if (_stakeByUser[msg.sender][stakeIndex].stakedLdAmount <= 0) revert NotsufficientStake();
         if (!canClaimOrUnstake(userStake.lastClaimed)) revert ClaimOrUnstakeWindowNotOpen();
 
-        uint256 rewardAmount = calculateRewards(userStake);
+        uint256 weeksStaked = (block.timestamp - userStake.lastClaimed) / 7 days;
+        uint256 rewardAmount = calculateRewards(weeksStaked, userStake.stakedLdAmount);
         userStake.lastClaimed = block.timestamp;
         _stakeByUser[_msgSender()][stakeIndex] = userStake;
 
+        if (_rewardPool.getPooledLDAmount() < rewardAmount) revert InsufficientRewardLiquidity();
         _rewardPool.sendRewards(rewardAmount, _msgSender());
         emit RewardClaimed(_msgSender(), rewardAmount);
     }
@@ -197,38 +203,19 @@ contract LdStaking is Ownable {
         return false;
     }
 
-    /**
-     * @notice function responsible for calculating rewards for number of weeks user staked LD
-     * @param userStake Stake record of user
-     */
-    function calculateRewards(Stake memory userStake) internal view returns (uint256 rewards) {
-        uint256 weeksStaked = (block.timestamp - userStake.lastClaimed) / 7 days;
-        if (weeksStaked > 1) {
-            uint256 compoundYield = compound(userStake.stakedLdAmount, _aprRate / 100, weeksStaked);
-            rewards = (compoundYield - userStake.stakedLdAmount * weeksStaked) / 52;
-        } else {
-            rewards = (_aprRate * userStake.stakedLdAmount) / 10000;
-            rewards = (rewards * weeksStaked) / 52;
+    /// @param weeksstaked number of weeks
+    /// @param initPrinciple principle amount staked
+    /// this function follows a linear approach to calculate rewards
+    function calculateRewards(uint weeksstaked, uint initPrinciple) internal view returns (uint) {
+        uint principle = initPrinciple;
+        for (uint i = 0; i < weeksstaked; i++) {
+            // calculating reward as per APR for one week
+            uint cur = (principle * _aprRate) / 10000;
+            uint reward = cur / 52;
+            // adding the reward to principle amount so for next week it will be compounded
+            principle += reward;
         }
-    }
-
-    function pow(int128 x, uint n) internal pure returns (int128 r) {
-        r = ABDKMath64x64.fromUInt(1);
-        while (n > 0) {
-            if (n % 2 == 1) {
-                r = ABDKMath64x64.mul(r, x);
-                n -= 1;
-            } else {
-                x = ABDKMath64x64.mul(x, x);
-                n /= 2;
-            }
-        }
-    }
-    function compound(uint principal, uint ratio, uint n) internal pure returns (uint) {
-        return
-            ABDKMath64x64.mulu(
-                pow(ABDKMath64x64.add(ABDKMath64x64.fromUInt(1), ABDKMath64x64.divu(ratio, 100)), n),
-                principal
-            );
+        // returning rewards by subtracting principle staked initially
+        return principle - initPrinciple;
     }
 }

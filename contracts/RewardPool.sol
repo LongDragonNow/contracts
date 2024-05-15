@@ -44,4 +44,8 @@ contract RewardPool is Ownable, IRewardPool {
     function withdrawRemainingTokens() external onlyOwner {
         _ldToken.transfer(_msgSender(), _ldToken.balanceOf(address(this)));
     }
+
+    function getPooledLDAmount() public view returns (uint256) {
+        return _pooledLdAmount;
+    }
 }
