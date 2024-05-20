@@ -399,6 +399,51 @@ describe("LdToken", function () {
       expect(finalBalanceSwapPair).to.equal(expectedFinalBalanceSwapPair);
     });
 
+    it("Should handle transferFrom with tax when tax amount be zero", async function () {
+      await this.ldTokenInst.connect(this.owner).transfer(this.addr1.address, ethers.parseEther("100"));
+      await this.ldTokenInst.connect(this.addr1).approve(this.addr2.address, ethers.parseEther("0.000000000000000005"));
+
+      const swapPair = await this.ldTokenInst.swapPair();
+
+      const initialBalanceSender = await this.ldTokenInst.balanceOf(this.addr1.address);
+      const initialBalanceRecipient = await this.ldTokenInst.balanceOf(this.addr2.address);
+      const initialBalanceLiquidity = await this.ldTokenInst.balanceOf(this.liquidityPoolWallet.address);
+      const initialBalanceReflections = await this.ldTokenInst.balanceOf(this.reflectionWallet.address);
+      const initialBalanceEcosystem = await this.ldTokenInst.balanceOf(this.ecoWallet.address);
+      const initialBalanceSwapPair = await this.ldTokenInst.balanceOf(swapPair);
+
+      await this.ldTokenInst
+        .connect(this.addr2)
+        .transferFrom(this.addr1.address, swapPair, ethers.parseEther("0.000000000000000005"));
+
+      const finalBalanceSender = await this.ldTokenInst.balanceOf(this.addr1.address);
+      const finalBalanceRecipient = await this.ldTokenInst.balanceOf(this.addr2.address);
+      const finalBalanceLiquidity = await this.ldTokenInst.balanceOf(this.liquidityPoolWallet.address);
+      const finalBalanceReflections = await this.ldTokenInst.balanceOf(this.reflectionWallet.address);
+      const finalBalanceEcosystem = await this.ldTokenInst.balanceOf(this.ecoWallet.address);
+      const finalBalanceSwapPair = await this.ldTokenInst.balanceOf(swapPair);
+
+      const taxPercent = await this.ldTokenInst._taxPercentage();
+      const amount = ethers.parseEther("0.000000000000000005");
+      const taxAmount = (amount * taxPercent) / 100n;
+      const expectedFinalBalanceSwapPair = initialBalanceSwapPair + amount - taxAmount;
+
+      const liquidityTax = await this.ldTokenInst._liquidityTaxPercentage();
+      const reflectionsTax = await this.ldTokenInst._reflectionsTaxPercentage();
+      const ecoTax = await this.ldTokenInst._ecosystemTaxPercentage();
+
+      const liquidityTaxAmount = (taxAmount * liquidityTax) / 100n;
+      const reflectionsTaxAmount = (taxAmount * reflectionsTax) / 100n;
+      const ecoTaxAmount = (taxAmount * ecoTax) / 100n;
+
+      expect(finalBalanceSender).to.equal(initialBalanceSender - amount);
+      expect(finalBalanceRecipient).to.equal(initialBalanceRecipient);
+      expect(finalBalanceLiquidity).to.equal(initialBalanceLiquidity + liquidityTaxAmount);
+      expect(finalBalanceReflections).to.equal(initialBalanceReflections + reflectionsTaxAmount);
+      expect(finalBalanceEcosystem).to.equal(initialBalanceEcosystem + ecoTaxAmount);
+      expect(finalBalanceSwapPair).to.equal(expectedFinalBalanceSwapPair);
+    });
+
     it("Should revert when non-owner tries to set tax exemption", async function () {
       await expect(
         this.ldTokenInst.connect(this.addr1).setTaxExemption(this.addr2.address, true),
