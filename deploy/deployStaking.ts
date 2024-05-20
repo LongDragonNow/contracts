@@ -1,6 +1,6 @@
-import { ethers, run } from "hardhat";
+import { ethers } from "hardhat";
 
-import { ldTokenAddress, owner, treasuryAddress } from "../hardhat.config";
+import { ldTokenAddress, owner } from "../hardhat.config";
 import { LdStaking__factory } from "../types";
 
 async function main() {
@@ -24,12 +24,12 @@ async function main() {
       );
       return;
     }
-    await staking.deploymentTransaction()!.wait(5);
-    await run("verify:verify", {
-      address: staking.target,
-      contract: "contracts/LdStaking.sol:LdStaking", //Filename.sol:ClassName
-      constructorArguments: [5000, 12, owner, treasuryAddress, ldTokenAddress],
-    });
+    // await staking.deploymentTransaction()!.wait(5);
+    // await run("verify:verify", {
+    //   address: staking.target,
+    //   contract: "contracts/LdStaking.sol:LdStaking", //Filename.sol:ClassName
+    //   constructorArguments: [5000, 12, owner, treasuryAddress, ldTokenAddress],
+    // });
     console.log(`deployed to ${staking.target}`);
   } catch (error) {
     if (error instanceof Error) {

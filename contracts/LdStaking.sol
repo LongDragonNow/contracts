@@ -5,11 +5,11 @@ import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { IRewardPool } from "./Interfaces/IRewardPool.sol";
 import { EnumerableSet } from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
-import "abdk-libraries-solidity/ABDKMath64x64.sol";
 
 contract LdStaking is Ownable {
     error ZeroAddress(string);
     error NotsufficientStake();
+    error StakeNotFound();
     error InvalidAPR();
     error StakingNotStarted();
     error InsufficientRewardLiquidity();
@@ -131,6 +131,7 @@ contract LdStaking is Ownable {
      * @param amount Amount of LD tokens to be unstaked
      */
     function unstakeLD(uint256 amount, uint256 stakeIndex) external {
+        if (_stakeByUser[_msgSender()].length < stakeIndex + 1) revert StakeNotFound();
         Stake memory userStake = _stakeByUser[_msgSender()][stakeIndex];
         if (!canClaimOrUnstake(userStake.lastClaimed)) revert ClaimOrUnstakeWindowNotOpen();
         if (userStake.stakedLdAmount < amount) revert NotsufficientStake();
@@ -151,8 +152,8 @@ contract LdStaking is Ownable {
     }
 
     function reStake(uint256 stakeIndex) external {
+        if (_stakeByUser[_msgSender()].length < stakeIndex + 1) revert StakeNotFound();
         Stake memory userStake = _stakeByUser[_msgSender()][stakeIndex];
-        if (_stakeByUser[msg.sender][stakeIndex].stakedLdAmount <= 0) revert NotsufficientStake();
         if (!canClaimOrUnstake(userStake.lastClaimed)) revert ClaimOrUnstakeWindowNotOpen();
 
         uint256 weeksStaked = (block.timestamp - userStake.lastClaimed) / 7 days;
@@ -171,8 +172,8 @@ contract LdStaking is Ownable {
      * @notice Function for claiming weekly rewards
      */
     function claimRewards(uint256 stakeIndex) external {
+        if (_stakeByUser[_msgSender()].length < stakeIndex + 1) revert StakeNotFound();
         Stake memory userStake = _stakeByUser[_msgSender()][stakeIndex];
-        if (_stakeByUser[msg.sender][stakeIndex].stakedLdAmount <= 0) revert NotsufficientStake();
         if (!canClaimOrUnstake(userStake.lastClaimed)) revert ClaimOrUnstakeWindowNotOpen();
 
         uint256 weeksStaked = (block.timestamp - userStake.lastClaimed) / 7 days;

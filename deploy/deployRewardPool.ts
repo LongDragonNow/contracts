@@ -1,4 +1,4 @@
-import { ethers, run } from "hardhat";
+import { ethers } from "hardhat";
 
 import { ldStakingAddress, ldTokenAddress, owner } from "../hardhat.config";
 import { RewardPool__factory } from "../types";
@@ -24,12 +24,12 @@ async function main() {
       );
       return;
     }
-    await rewardpool.deploymentTransaction()!.wait(5);
-    await run("verify:verify", {
-      address: rewardpool.target,
-      contract: "contracts/RewardPool.sol:RewardPool", //Filename.sol:ClassName
-      constructorArguments: [owner, ldStakingAddress, ldTokenAddress],
-    });
+    // await rewardpool.deploymentTransaction()!.wait(5);
+    // await run("verify:verify", {
+    //   address: rewardpool.target,
+    //   contract: "contracts/RewardPool.sol:RewardPool", //Filename.sol:ClassName
+    //   constructorArguments: [owner, ldStakingAddress, ldTokenAddress],
+    // });
     console.log(`deployed to ${rewardpool.target}`);
   } catch (error) {
     if (error instanceof Error) {

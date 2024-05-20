@@ -1,4 +1,4 @@
-import { ethers, run } from "hardhat";
+import { ethers } from "hardhat";
 
 import { ecosystemDevelopmentAddress, liquidityPoolsAddress, owner, reflectionsAddress } from "../hardhat.config";
 import { LdToken__factory } from "../types";
@@ -6,6 +6,7 @@ import { LdToken__factory } from "../types";
 async function main() {
   try {
     const ldToken: LdToken__factory = await ethers.getContractFactory("LdToken");
+    console.log("Deploying LdToken...");
     const ldtoken = await ldToken.deploy(owner, liquidityPoolsAddress, reflectionsAddress, ecosystemDevelopmentAddress);
     if (!ldtoken || !ldtoken.deploymentTransaction) {
       // If deployTransaction is null, log an error and exit the function early
@@ -14,12 +15,12 @@ async function main() {
       );
       return;
     }
-    await ldtoken.deploymentTransaction()!.wait(5);
-    await run("verify:verify", {
-      address: ldtoken.target,
-      contract: "contracts/LdToken.sol:LdToken", //Filename.sol:ClassName
-      constructorArguments: [owner, liquidityPoolsAddress, reflectionsAddress, ecosystemDevelopmentAddress],
-    });
+    // await ldtoken.deploymentTransaction()!.wait(5);
+    // await run("verify:verify", {
+    //   address: ldtoken.target,
+    //   contract: "contracts/LdToken.sol:LdToken", //Filename.sol:ClassName
+    //   constructorArguments: [owner, liquidityPoolsAddress, reflectionsAddress, ecosystemDevelopmentAddress],
+    // });
     console.log(`deployed to ${ldtoken.target}`);
   } catch (error) {
     if (error instanceof Error) {

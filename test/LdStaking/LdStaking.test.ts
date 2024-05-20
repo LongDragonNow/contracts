@@ -1,10 +1,9 @@
-import { loadFixture } from "@nomicfoundation/hardhat-network-helpers";
-import { time } from "@nomicfoundation/hardhat-network-helpers";
+import { loadFixture, time } from "@nomicfoundation/hardhat-network-helpers";
 import { expect } from "chai";
 import { Contract } from "ethers";
 import { ethers } from "hardhat";
 
-import { LdToken__factory, Ownable__factory } from "../../types";
+import { LdToken__factory } from "../../types";
 import { LdStaking__factory } from "../../types/factories/contracts/LdStaking__factory";
 import type { Signers } from "../types";
 import { deployStakingFixture } from "./LdStaking.fixture";
@@ -64,6 +63,46 @@ describe("LdStaking", function () {
       await this.stakingInst.changeApr("2000");
       expect(2000).to.equal(await this.stakingInst._aprRate());
     });
+
+    it("Should revert when decimals not passed while APR change by owner", async function () {
+      await expect(this.stakingInst.changeApr("20")).to.be.rejectedWith("InvalidAPR");
+    });
+
+    it("Should revert if non-owner tries to change APR", async function () {
+      const stakingInstNonOwner = new Contract(this.ldStakingAddress, LdStaking__factory.abi, this.addr1);
+      await expect(stakingInstNonOwner.changeApr("2000")).to.be.rejectedWith("OwnableUnauthorizedAccount");
+    });
+
+    it("Should fail if non-owner tries to set pool address", async function () {
+      const stakingInst = new Contract(this.ldStakingAddress, LdStaking__factory.abi, this.addr1);
+      await expect(stakingInst.setPool(this.rewardPoolAddress)).to.be.rejectedWith("OwnableUnauthorizedAccount");
+    });
+
+    it("Should fail if zero address is passed as pool address", async function () {
+      await expect(this.stakingInst.setPool(ethers.ZeroAddress)).to.be.rejectedWith("ZeroAddress");
+    });
+
+    it("Should revert if non-owner tries to disable staking", async function () {
+      const stakingInst = new Contract(this.ldStakingAddress, LdStaking__factory.abi, this.addr1);
+      await expect(stakingInst.disableStaking()).to.be.rejectedWith("OwnableUnauthorizedAccount");
+    });
+
+    it("Should disable staking when owner disables staking", async function () {
+      await this.stakingInst.disableStaking();
+      expect(await this.stakingInst.lock()).to.be.true;
+    });
+
+    it("Should revert when non-owner enables staking", async function () {
+      await this.stakingInst.disableStaking();
+      const stakingInst = new Contract(this.ldStakingAddress, LdStaking__factory.abi, this.addr1);
+      await expect(stakingInst.enableStaking()).to.be.rejectedWith("OwnableUnauthorizedAccount");
+    });
+
+    it("Should enable staking when owner enables staking", async function () {
+      await this.stakingInst.disableStaking();
+      await this.stakingInst.enableStaking();
+      expect(await this.stakingInst.lock()).to.be.false;
+    });
   });
 
   describe("Staking", async function () {
@@ -95,6 +134,14 @@ describe("LdStaking", function () {
       expect(await staking._totalStakedLdAmount()).to.equal(ethers.parseEther("10000").toString());
     });
 
+    it("Should emit Staked event", async function () {
+      await this.stakingInst.enableStaking();
+      const staking = new Contract(this.ldStakingAddress, LdStaking__factory.abi, this.addr2);
+      await expect(staking.stakeLd(ethers.parseEther("10000")))
+        .to.emit(staking, "Staked")
+        .withArgs(this.addr2, ethers.parseEther("10000"));
+    });
+
     it("Should revert staking if staking is disabled", async function () {
       await this.stakingInst.enableStaking();
       await this.stakingInst.disableStaking();
@@ -110,6 +157,12 @@ describe("LdStaking", function () {
       await staking.stakeLd(ethers.parseEther("10000"));
       const balAfter = await this.ldTokenInst.balanceOf(this.addr2);
       expect(balBefore - balAfter).to.equal(ethers.parseEther("10000").toString());
+    });
+
+    it("Should revert if amount is passed as zero", async function () {
+      await this.stakingInst.enableStaking();
+      const staking = new Contract(this.ldStakingAddress, LdStaking__factory.abi, this.addr2);
+      await expect(staking.stakeLd(ethers.parseEther("0"))).to.be.rejectedWith("Invalid amount");
     });
 
     it("Should increase balance of staking pool", async function () {
@@ -136,30 +189,6 @@ describe("LdStaking", function () {
     });
   });
 
-  describe("Unstaking", async function () {
-    beforeEach(async function () {
-      const { owner, addr1, addr2, ldStakingAddress, ldTokenAddress, rewardPoolAddress, treasury, stakingInst } =
-        await this.loadFixture(deployStakingFixture);
-      this.owner = owner;
-      this.addr1 = addr1;
-      this.addr2 = addr2;
-      this.ldStakingAddress = ldStakingAddress;
-      this.ldTokenAddress = ldTokenAddress;
-      this.rewardPoolAddress = rewardPoolAddress;
-      this.treasury = treasury;
-      this.stakingInst = stakingInst;
-
-      const ldTokenInst = new Contract(ldTokenAddress, LdToken__factory.abi, this.owner);
-      // await ldTokenInst.mint();
-      await ldTokenInst.approve(ldStakingAddress, ethers.parseEther("1000000"));
-
-      this.ldTokenInst = ldTokenInst;
-      await this.stakingInst.enableStaking();
-      await this.stakingInst.stakeLd(ethers.parseEther("10000"));
-      expect(await this.stakingInst.getuserStake(owner, 0)).to.be.equal(ethers.parseEther("10000").toString());
-    });
-  });
-
   describe("Claiming", async function () {
     beforeEach(async function () {
       const { owner, addr1, addr2, ldStakingAddress, ldTokenAddress, rewardPoolAddress, stakingInst } =
@@ -181,6 +210,49 @@ describe("LdStaking", function () {
       await this.stakingInst.stakeLd(ethers.parseEther("10000"));
       const stake2 = await this.stakingInst.getuserStake(owner, 0);
       expect(stake2.stakedLdAmount).to.be.equal(ethers.parseEther("10000"));
+    });
+
+    it("Should revert if reward pool do not have sufficient funds", async function () {
+      const [addr3, addr4] = await ethers.getSigners();
+      const LdToken = await ethers.getContractFactory("LdToken");
+      const ldtoken = await LdToken.deploy(this.owner, this.addr1, this.addr2, addr3);
+      const ldTokenAddress = await ldtoken.getAddress();
+
+      const LdStaking = await ethers.getContractFactory("LdStaking");
+      const ldstaking = await LdStaking.deploy(5000, this.owner, ldTokenAddress);
+      const ldStakingAddress = await ldstaking.getAddress();
+
+      const rewardPool = await ethers.getContractFactory("RewardPool");
+      const rewpool = await rewardPool.deploy(this.owner, ldStakingAddress, ldTokenAddress);
+      const rewardPoolAddress = await rewpool.getAddress();
+
+      const stakingInst = new Contract(ldStakingAddress, LdStaking__factory.abi, this.owner);
+      await stakingInst.setPool(rewardPoolAddress);
+      await stakingInst.enableStaking();
+
+      const ldTokenInst = new Contract(ldTokenAddress, LdToken__factory.abi, this.owner);
+
+      const tx1 = await ldTokenInst.transfer(addr3, ethers.parseEther("2000000"));
+
+      // const rewardPoolInst = new Contract(rewardPoolAddress, RewardPool__factory.abi, this.owner);
+      // await ldTokenInst.approve(rewardPoolAddress, ethers.parseEther("1"));
+      // await rewardPoolInst.fundPool(ethers.parseEther("1"));
+
+      const ldTokenaddr3 = new Contract(ldTokenAddress, LdToken__factory.abi, addr3);
+      await ldTokenaddr3.approve(ldStakingAddress, ethers.parseEther("2000000"));
+
+      const stakinginst = new Contract(ldStakingAddress, LdStaking__factory.abi, addr3);
+      await stakinginst.stakeLd(ethers.parseEther("2000000"));
+
+      await time.increase(7 * 86400);
+      await time.increase(7 * 86400);
+
+      await expect(stakinginst.claimRewards(0)).to.be.rejectedWith("InsufficientRewardLiquidity()");
+    });
+
+    it("should revert when invalid stake index passed", async function () {
+      await time.increase(3 * 86400);
+      await expect(this.stakingInst.claimRewards(2)).to.be.rejectedWith("StakeNotFound");
     });
 
     it("Should revert claim before 7 days", async function () {
@@ -224,7 +296,7 @@ describe("LdStaking", function () {
     it("Should receive rewards for missed claims in previous weeks", async function () {
       // rewards = 10000*5000/10000
       //for 3 weeks - rewards*3/52
-      let expectedRewards = 291244097064178425124n;
+      const expectedRewards = 291244097064178425124n;
       // 3 weeks ahead
       await time.increase(21 * 86400);
       await expect(this.stakingInst.claimRewards(0))
@@ -234,7 +306,7 @@ describe("LdStaking", function () {
 
     it("Should not inflate exponentially for longer time period", async function () {
       // 166517 as rewrads for 300 weeks at 50% apr
-      let expectedRewards = 166517566412835534895572n;
+      const expectedRewards = 166517566412835534895572n;
       await time.increase(2100 * 86400);
       await expect(this.stakingInst.claimRewards(0))
         .to.emit(this.stakingInst, "RewardClaimed")
@@ -268,6 +340,49 @@ describe("LdStaking", function () {
     it("Should revert restake before 7 days", async function () {
       await time.increase(3 * 86400);
       await expect(this.stakingInst.reStake(0)).to.be.rejectedWith("ClaimOrUnstakeWindowNotOpen");
+    });
+
+    it("Should revert when invalid stake index is passed", async function () {
+      await time.increase(3 * 86400);
+      await expect(this.stakingInst.reStake(1)).to.be.rejectedWith("StakeNotFound");
+    });
+
+    it("Should revert if reward pool do not have sufficient funds", async function () {
+      const [addr3, addr4] = await ethers.getSigners();
+      const LdToken = await ethers.getContractFactory("LdToken");
+      const ldtoken = await LdToken.deploy(this.owner, this.addr1, this.addr2, addr3);
+      const ldTokenAddress = await ldtoken.getAddress();
+
+      const LdStaking = await ethers.getContractFactory("LdStaking");
+      const ldstaking = await LdStaking.deploy(5000, this.owner, ldTokenAddress);
+      const ldStakingAddress = await ldstaking.getAddress();
+
+      const rewardPool = await ethers.getContractFactory("RewardPool");
+      const rewpool = await rewardPool.deploy(this.owner, ldStakingAddress, ldTokenAddress);
+      const rewardPoolAddress = await rewpool.getAddress();
+
+      const stakingInst = new Contract(ldStakingAddress, LdStaking__factory.abi, this.owner);
+      await stakingInst.setPool(rewardPoolAddress);
+      await stakingInst.enableStaking();
+
+      const ldTokenInst = new Contract(ldTokenAddress, LdToken__factory.abi, this.owner);
+
+      const tx1 = await ldTokenInst.transfer(addr3, ethers.parseEther("2000000"));
+
+      // const rewardPoolInst = new Contract(rewardPoolAddress, RewardPool__factory.abi, this.owner);
+      // await ldTokenInst.approve(rewardPoolAddress, ethers.parseEther("1"));
+      // await rewardPoolInst.fundPool(ethers.parseEther("1"));
+
+      const ldTokenaddr3 = new Contract(ldTokenAddress, LdToken__factory.abi, addr3);
+      await ldTokenaddr3.approve(ldStakingAddress, ethers.parseEther("2000000"));
+
+      const stakinginst = new Contract(ldStakingAddress, LdStaking__factory.abi, addr3);
+      await stakinginst.stakeLd(ethers.parseEther("2000000"));
+
+      await time.increase(7 * 86400);
+      await time.increase(7 * 86400);
+
+      await expect(stakinginst.reStake(0)).to.be.rejectedWith("InsufficientRewardLiquidity()");
     });
 
     it("Should restake after week ends", async function () {
@@ -306,7 +421,7 @@ describe("LdStaking", function () {
     it("Should be able to restake rewards missed in previous weeks", async function () {
       // rewards = 10000*5000/10000
       //for 3 weeks - rewards*3/52
-      let expectedRewards = 291244097064178425124n;
+      const expectedRewards = 291244097064178425124n;
       // 3 weeks ahead
       await time.increase(21 * 86400);
       await expect(this.stakingInst.reStake(0))
@@ -356,6 +471,18 @@ describe("LdStaking", function () {
       ).to.be.revertedWithCustomError(this.stakingInst, "NotsufficientStake"); //  0 is index of stake position
     });
 
+    it("Should revert if invalid stake index is passed ", async function () {
+      const amount = ethers.parseEther("100");
+      await this.stakingInst.enableStaking();
+      await this.stakingInst.connect(this.addr2).stakeLd(amount);
+      // Skip one day
+      await ethers.provider.send("evm_increaseTime", [86400 * 7]); // 86400 seconds = 1 day
+      await ethers.provider.send("evm_mine"); // Mine a block to update the state
+      await expect(this.stakingInst.connect(this.addr2).unstakeLD(ethers.parseEther("101"), 2)).to.be.rejectedWith(
+        "StakeNotFound",
+      ); //  0 is index of stake position
+    });
+
     it("Should unstake amount ", async function () {
       const amount = ethers.parseEther("100");
 
@@ -383,7 +510,7 @@ describe("LdStaking", function () {
       expect(user2Stakes.stakedLdAmount).to.equal(ethers.parseEther("50"));
     });
 
-    it("Should  emit the Unstaked event after unstakeLD", async function () {
+    it("Should emit the Unstaked event after unstakeLD", async function () {
       const amount = ethers.parseEther("100");
 
       await this.stakingInst.enableStaking();

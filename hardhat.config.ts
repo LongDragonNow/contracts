@@ -13,7 +13,7 @@ const etherscanApiKey: string = vars.get("ETHERSCAN_API_KEY");
 const mnemonic: string = vars.get("MNEMONIC");
 const alchemyApiKey: string = vars.get("ALCHEMY_API_KEY");
 const coinMarketCapApiKey: string = vars.get("CMC_API_KEY");
-const owner: string = vars.get("OWNER_ADDRESS");
+const owner: string = vars.get("OWNER_ADDRESS") ? vars.get("OWNER_ADDRESS") : "";
 const ldTokenAddress: string = vars.has("LD_ADDRESS") ? vars.get("LD_ADDRESS") : "";
 const ldStakingAddress: string = vars.has("STAKING_ADDRESS") ? vars.get("STAKING_ADDRESS") : "";
 const rewardPoolAddress: string = vars.has("POOL_ADDRESS") ? vars.get("POOL_ADDRESS") : "";
@@ -26,7 +26,7 @@ const liquidityPoolsAddress: string = vars.has("LIQUIDITY_POOLS_ADDRESS") ? vars
 const reflectionsAddress: string = vars.has("REFLECTIONS_ADDRESS") ? vars.get("REFLECTIONS_ADDRESS") : "";
 
 const chainIds = {
-  hardhat: 31337,
+  hardhat: 1337,
   ethereum: 1,
   sepolia: 11155111,
   "polygon-mainnet": 137,

@@ -9,7 +9,6 @@ import { IRewardPool } from "./Interfaces/IRewardPool.sol";
 /// Solution - fixed typo in withdraw function from balanceOf(msg.sender) to _pooledLdAmount)
 contract RewardPool is Ownable, IRewardPool {
     error UnAuthorized();
-    error InsufficientFunds();
     error ZeroAddress(string);
 
     IERC20 public _ldToken;
@@ -31,7 +30,6 @@ contract RewardPool is Ownable, IRewardPool {
     }
 
     function sendRewards(uint256 amount, address to) external onlyStakingContract {
-        if (amount > _pooledLdAmount) revert InsufficientFunds();
         _pooledLdAmount -= amount;
         _ldToken.transfer(to, amount);
     }

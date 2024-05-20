@@ -42,6 +42,49 @@ describe("LdToken", function () {
       expect(await this.ldTokenInst._isTaxExempt(this.ecoWallet.address)).to.equal(true);
       expect(await this.ldTokenInst._isExcludedFromMaxTokensPerWallet(this.ecoWallet.address)).to.equal(true);
     });
+
+    it("Should revert if initialOwner is zero address", async function () {
+      const LdToken = await ethers.getContractFactory("LdToken");
+      await expect(
+        LdToken.deploy(
+          ethers.ZeroAddress,
+          this.liquidityPoolWallet.address,
+          this.reflectionWallet.address,
+          this.ecoWallet.address,
+        ),
+      ).to.be.revertedWithCustomError(this.ldTokenInst, "OwnableInvalidOwner");
+    });
+
+    it("Should revert if liquidityPoolsWallet is zero address", async function () {
+      const LdToken = await ethers.getContractFactory("LdToken");
+      await expect(
+        LdToken.deploy(this.owner.address, ethers.ZeroAddress, this.reflectionWallet.address, this.ecoWallet.address),
+      ).to.be.revertedWith("Liquidity pool wallet cannot be the zero address");
+    });
+
+    it("Should revert if reflectionsWallet is zero address", async function () {
+      const LdToken = await ethers.getContractFactory("LdToken");
+      await expect(
+        LdToken.deploy(
+          this.owner.address,
+          this.liquidityPoolWallet.address,
+          ethers.ZeroAddress,
+          this.ecoWallet.address,
+        ),
+      ).to.be.revertedWith("Reflections wallet cannot be the zero address");
+    });
+
+    it("Should revert if ecosystemDevelopmentWallet is zero address", async function () {
+      const LdToken = await ethers.getContractFactory("LdToken");
+      await expect(
+        LdToken.deploy(
+          this.owner.address,
+          this.liquidityPoolWallet.address,
+          this.reflectionWallet.address,
+          ethers.ZeroAddress,
+        ),
+      ).to.be.revertedWith("Ecosystem development wallet cannot be the zero address");
+    });
   });
 
   describe("Transactions", async function () {
@@ -137,6 +180,53 @@ describe("LdToken", function () {
 
       expect(finalBalance).to.equal(expectedFinalBalance);
     });
+
+    it("Should handle transfer without tax when tax percentage is zero", async function () {
+      await this.ldTokenInst.connect(this.owner).setTaxPercentage(0);
+      const amount = ethers.parseEther("10");
+
+      await this.ldTokenInst.connect(this.owner).transfer(this.addr1.address, amount);
+      const initialBalanceSender = await this.ldTokenInst.balanceOf(this.addr1.address);
+      const initialBalanceRecipient = await this.ldTokenInst.balanceOf(this.addr2.address);
+
+      let tx = await this.ldTokenInst.connect(this.addr1).transfer(this.addr2.address, amount);
+
+      let receipt = await tx.wait();
+
+      let eventNames = ["TaxDeducted", "TaxDistributed"];
+
+      let exits = receipt.logs.find((log: { fragment: { name: string } }) => eventNames.includes(log.fragment.name));
+
+      expect(exits).to.be.undefined;
+
+      const finalBalanceSender = await this.ldTokenInst.balanceOf(this.addr1.address);
+      const finalBalanceRecipient = await this.ldTokenInst.balanceOf(this.addr2.address);
+      const taxAmount = 0n;
+      const amountAfterTax = amount - taxAmount;
+
+      expect(finalBalanceSender).to.equal(initialBalanceSender - amount);
+      expect(finalBalanceRecipient).to.equal(initialBalanceRecipient + amountAfterTax);
+
+      await expect(this.ldTokenInst.connect(this.owner).transfer(this.addr1.address, amount))
+        .to.emit(this.ldTokenInst, "Transfer")
+        .withArgs(this.owner.address, this.addr1.address, amount);
+
+      await this.ldTokenInst.connect(this.owner).setTaxPercentage(10);
+
+      const swapPair = await this.ldTokenInst.swapPair();
+
+      tx = await this.ldTokenInst.connect(this.addr1).transfer(swapPair, ethers.parseEther("1"));
+
+      receipt = await tx.wait();
+
+      eventNames = ["TaxDeducted", "TaxDistributed"];
+
+      const events = receipt.logs.map((log: { fragment: { name: string } }) => log.fragment.name);
+      exits = events.filter((event: string) => eventNames.includes(event));
+      console.log(exits);
+      expect(exits).to.contain("TaxDeducted");
+      expect(exits).to.contain("TaxDistributed");
+    });
   });
 
   describe("Tax and Anti-Snipe Settings", async function () {
@@ -158,6 +248,20 @@ describe("LdToken", function () {
       expect(await this.ldTokenInst._taxPercentage()).to.equal(10);
     });
 
+    it("Should not change state if tax percentage is the same", async function () {
+      await this.ldTokenInst.connect(this.owner).setTaxPercentage(10);
+      const tx = await this.ldTokenInst.connect(this.owner).setTaxPercentage(10);
+
+      const receipt = await tx.wait();
+
+      const exits = receipt.logs.find(
+        (log: { fragment: { name: string } }) => log.fragment.name === "TaxPercentageUpdated",
+      );
+
+      expect(exits).to.be.undefined;
+      expect(await this.ldTokenInst._taxPercentage()).to.equal(10);
+    });
+
     it("Should revert if non-owner tries to update the tax percentage", async function () {
       await expect(this.ldTokenInst.connect(this.addr1).setTaxPercentage(10)).to.be.revertedWithCustomError(
         this.ldTokenInst,
@@ -165,11 +269,22 @@ describe("LdToken", function () {
       );
     });
 
+    it("Should allow the owner to set the tax percentage to the maximum allowed value", async function () {
+      await this.ldTokenInst.connect(this.owner).setTaxPercentage(25);
+      expect(await this.ldTokenInst._taxPercentage()).to.equal(25);
+    });
+
+    it("Should revert if the owner tries to set the tax percentage above the maximum allowed value", async function () {
+      await expect(this.ldTokenInst.connect(this.owner).setTaxPercentage(26)).to.be.revertedWith(
+        "Percentage exceeds maximum",
+      );
+    });
+
     it("Should allow the owner to update the tax distribution", async function () {
-      await this.ldTokenInst.connect(this.owner).setTaxDistribution(50, 30, 20);
+      await this.ldTokenInst.connect(this.owner).setTaxDistribution(50, 25, 25);
       expect(await this.ldTokenInst._liquidityTaxPercentage()).to.equal(50);
-      expect(await this.ldTokenInst._reflectionsTaxPercentage()).to.equal(30);
-      expect(await this.ldTokenInst._ecosystemTaxPercentage()).to.equal(20);
+      expect(await this.ldTokenInst._reflectionsTaxPercentage()).to.equal(25);
+      expect(await this.ldTokenInst._ecosystemTaxPercentage()).to.equal(25);
     });
 
     it("Should revert if total tax distribution percentages do not add up to 100", async function () {
@@ -178,9 +293,137 @@ describe("LdToken", function () {
       );
     });
 
+    it("Should revert when non-owner tries to set tax distribution", async function () {
+      await expect(this.ldTokenInst.connect(this.addr1).setTaxDistribution(50, 30, 20)).to.be.revertedWithCustomError(
+        this.ldTokenInst,
+        "OwnableUnauthorizedAccount",
+      );
+    });
+
+    it("Should not change state if tax percentages are the same", async function () {
+      await this.ldTokenInst.connect(this.owner).setTaxDistribution(50, 30, 20);
+
+      expect(await this.ldTokenInst._liquidityTaxPercentage()).to.equal(50);
+      expect(await this.ldTokenInst._reflectionsTaxPercentage()).to.equal(30);
+      expect(await this.ldTokenInst._ecosystemTaxPercentage()).to.equal(20);
+
+      const tx = await this.ldTokenInst.connect(this.owner).setTaxDistribution(50, 30, 20);
+      const receipt = await tx.wait();
+
+      const eventNames = [
+        "TaxPercentageUpdated",
+        "LiquidityTaxPercentageUpdated",
+        "ReflectionsTaxPercentageUpdated",
+        "EcosystemTaxPercentageUpdated",
+      ];
+
+      const exits = receipt.logs.find((log: { fragment: { name: string } }) => eventNames.includes(log.fragment.name));
+
+      expect(exits).to.be.undefined;
+
+      expect(await this.ldTokenInst._liquidityTaxPercentage()).to.equal(50);
+      expect(await this.ldTokenInst._reflectionsTaxPercentage()).to.equal(30);
+      expect(await this.ldTokenInst._ecosystemTaxPercentage()).to.equal(20);
+    });
+
     it("Should allow the owner to enable or disable the anti-snipe mechanism", async function () {
       await this.ldTokenInst.connect(this.owner).setAntiSnipeEnabled(false);
       expect(await this.ldTokenInst.antiSnipeEnabled()).to.equal(false);
+    });
+
+    it("Should revert when non-owner tries to enable or disable the anti-snipe mechanism", async function () {
+      await this.ldTokenInst.connect(this.owner).setAntiSnipeEnabled(false);
+      await expect(this.ldTokenInst.connect(this.addr1).setAntiSnipeEnabled(true)).to.be.revertedWithCustomError(
+        this.ldTokenInst,
+        "OwnableUnauthorizedAccount",
+      );
+
+      expect(await this.ldTokenInst.antiSnipeEnabled()).to.equal(false);
+    });
+
+    it("Should not change state if anti-snipe value is the same", async function () {
+      const tx = await this.ldTokenInst.connect(this.owner).setAntiSnipeEnabled(true);
+
+      const receipt = await tx.wait();
+
+      const exits = receipt.logs.find(
+        (log: { fragment: { name: string } }) => log.fragment.name === "AntiSnipeEnabledUpdated",
+      );
+
+      expect(exits).to.be.undefined;
+
+      await this.ldTokenInst.connect(this.owner).setAntiSnipeEnabled(true);
+      expect(await this.ldTokenInst.antiSnipeEnabled()).to.equal(true);
+    });
+
+    it("Should handle transferFrom with tax and anti-snipe logic", async function () {
+      await this.ldTokenInst.connect(this.owner).transfer(this.addr1.address, ethers.parseEther("100"));
+      await this.ldTokenInst.connect(this.addr1).approve(this.addr2.address, ethers.parseEther("50"));
+
+      const swapPair = await this.ldTokenInst.swapPair();
+
+      const initialBalanceSender = await this.ldTokenInst.balanceOf(this.addr1.address);
+      const initialBalanceRecipient = await this.ldTokenInst.balanceOf(this.addr2.address);
+      const initialBalanceLiquidity = await this.ldTokenInst.balanceOf(this.liquidityPoolWallet.address);
+      const initialBalanceReflections = await this.ldTokenInst.balanceOf(this.reflectionWallet.address);
+      const initialBalanceEcosystem = await this.ldTokenInst.balanceOf(this.ecoWallet.address);
+      const initialBalanceSwapPair = await this.ldTokenInst.balanceOf(swapPair);
+
+      await this.ldTokenInst.connect(this.addr2).transferFrom(this.addr1.address, swapPair, ethers.parseEther("10"));
+
+      const finalBalanceSender = await this.ldTokenInst.balanceOf(this.addr1.address);
+      const finalBalanceRecipient = await this.ldTokenInst.balanceOf(this.addr2.address);
+      const finalBalanceLiquidity = await this.ldTokenInst.balanceOf(this.liquidityPoolWallet.address);
+      const finalBalanceReflections = await this.ldTokenInst.balanceOf(this.reflectionWallet.address);
+      const finalBalanceEcosystem = await this.ldTokenInst.balanceOf(this.ecoWallet.address);
+      const finalBalanceSwapPair = await this.ldTokenInst.balanceOf(swapPair);
+
+      const taxPercent = await this.ldTokenInst._taxPercentage();
+      const amount = ethers.parseEther("10");
+      const taxAmount = (amount * taxPercent) / 100n;
+      const expectedFinalBalanceSwapPair = initialBalanceSwapPair + amount - taxAmount;
+
+      const liquidityTax = await this.ldTokenInst._liquidityTaxPercentage();
+      const reflectionsTax = await this.ldTokenInst._reflectionsTaxPercentage();
+      const ecoTax = await this.ldTokenInst._ecosystemTaxPercentage();
+
+      const liquidityTaxAmount = (taxAmount * liquidityTax) / 100n;
+      const reflectionsTaxAmount = (taxAmount * reflectionsTax) / 100n;
+      const ecoTaxAmount = (taxAmount * ecoTax) / 100n;
+
+      expect(finalBalanceSender).to.equal(initialBalanceSender - amount);
+      expect(finalBalanceRecipient).to.equal(initialBalanceRecipient);
+      expect(finalBalanceLiquidity).to.equal(initialBalanceLiquidity + liquidityTaxAmount);
+      expect(finalBalanceReflections).to.equal(initialBalanceReflections + reflectionsTaxAmount);
+      expect(finalBalanceEcosystem).to.equal(initialBalanceEcosystem + ecoTaxAmount);
+      expect(finalBalanceSwapPair).to.equal(expectedFinalBalanceSwapPair);
+    });
+
+    it("Should revert when non-owner tries to set tax exemption", async function () {
+      await expect(
+        this.ldTokenInst.connect(this.addr1).setTaxExemption(this.addr2.address, true),
+      ).to.be.revertedWithCustomError(this.ldTokenInst, "OwnableUnauthorizedAccount");
+    });
+
+    it("Should revert if trying to set tax exemption for the zero address", async function () {
+      await expect(this.ldTokenInst.connect(this.owner).setTaxExemption(ethers.ZeroAddress, true)).to.be.revertedWith(
+        "Account cannot be the zero address",
+      );
+    });
+
+    it("Should not change state if tax exemption status is the same", async function () {
+      await this.ldTokenInst.connect(this.owner).setTaxExemption(this.addr1.address, true);
+      expect(await this.ldTokenInst._isTaxExempt(this.addr1.address)).to.equal(true);
+      const tx = await this.ldTokenInst.connect(this.owner).setTaxExemption(this.addr1.address, true);
+
+      const receipt = await tx.wait();
+
+      const exits = receipt.logs.find(
+        (log: { fragment: { name: string } }) => log.fragment.name === "TaxExemptionUpdated",
+      );
+
+      expect(exits).to.be.undefined;
+      expect(await this.ldTokenInst._isTaxExempt(this.addr1.address)).to.equal(true);
     });
   });
 
@@ -221,6 +464,35 @@ describe("LdToken", function () {
         this.ldTokenInst.connect(this.addr1).setIsExcludedFromMaxWalletToken(this.addr2.address, true),
       ).to.be.revertedWithCustomError(this.ldTokenInst, "OwnableUnauthorizedAccount");
     });
+
+    it("Should revert if trying to set exclusion for the zero address", async function () {
+      await expect(
+        this.ldTokenInst.connect(this.owner).setIsExcludedFromMaxWalletToken(ethers.ZeroAddress, true),
+      ).to.be.revertedWith("Account cannot be the zero address");
+    });
+
+    it("Should revert if trying to set exclusion for the swapPair address", async function () {
+      const swapPair = await this.ldTokenInst.swapPair();
+      await expect(
+        this.ldTokenInst.connect(this.owner).setIsExcludedFromMaxWalletToken(swapPair, true),
+      ).to.be.revertedWith("Cannot change state of the swapPair for max wallet token limit");
+    });
+
+    it("Should not change state if exclusion state is the same", async function () {
+      await this.ldTokenInst.connect(this.owner).setIsExcludedFromMaxWalletToken(this.addr1.address, true);
+      expect(await this.ldTokenInst._isExcludedFromMaxTokensPerWallet(this.addr1.address)).to.equal(true);
+
+      const tx = await this.ldTokenInst.connect(this.owner).setIsExcludedFromMaxWalletToken(this.addr1.address, true);
+
+      const receipt = await tx.wait();
+
+      const exits = receipt.logs.find(
+        (log: { fragment: { name: string } }) => log.fragment.name === "MaxWalletTokenExclusionUpdated",
+      );
+
+      expect(exits).to.be.undefined;
+      expect(await this.ldTokenInst._isExcludedFromMaxTokensPerWallet(this.addr1.address)).to.equal(true);
+    });
   });
 
   describe("Burning Tokens", async function () {
@@ -247,6 +519,14 @@ describe("LdToken", function () {
       const initialTotalSupply = await this.ldTokenInst.totalSupply();
       await this.ldTokenInst.connect(this.owner).burn(ethers.parseEther("100"));
       expect(await this.ldTokenInst.totalSupply()).to.equal(initialTotalSupply - ethers.parseEther("100"));
+    });
+
+    it("Should revert if token holder tries to burn more tokens than they have", async function () {
+      await this.ldTokenInst.connect(this.owner).transfer(this.addr1.address, ethers.parseEther("50"));
+      await expect(this.ldTokenInst.connect(this.addr1).burn(ethers.parseEther("100"))).to.be.revertedWithCustomError(
+        this.ldTokenInst,
+        "ERC20InsufficientBalance",
+      );
     });
   });
 });

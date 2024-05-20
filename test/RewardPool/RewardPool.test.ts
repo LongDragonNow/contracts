@@ -26,6 +26,25 @@ describe("Reward Pool tests", () => {
     this.rewardPoolAddress = rewardPoolAddress;
   });
 
+  it("Should revert if tried to deloyed with passing zero address for ld token or ld staking", async function () {
+    const rewardPool = await ethers.getContractFactory("RewardPool");
+    await expect(rewardPool.deploy(this.owner, ethers.ZeroAddress, this.addr1)).to.be.rejectedWith(
+      `ZeroAddress("Staking contract address can't be zero")`,
+    );
+
+    await expect(rewardPool.deploy(this.owner, this.addr1, ethers.ZeroAddress)).to.be.rejectedWith(
+      `ZeroAddress("LDToken contract address can't be zero")`,
+    );
+  });
+
+  it("Should revert as only staking contract can send rewards", async function () {
+    await this.ldTokenInst.approve(this.rewardPoolAddress, ethers.parseEther("1000000"));
+    await this.rewardPoolInst.fundPool(ethers.parseEther("100000"));
+    await expect(this.rewardPoolInst.sendRewards(ethers.parseEther("100000"), this.addr1)).to.be.rejectedWith(
+      "UnAuthorized()",
+    );
+  });
+
   it("Should be able to fund pool by owner", async function () {
     await this.ldTokenInst.approve(this.rewardPoolAddress, ethers.parseEther("1000000"));
     await this.rewardPoolInst.fundPool(ethers.parseEther("100000"));
